@@ -37,11 +37,11 @@ digraph pick_pattern {
 | | Subagents | Agent Teams | workmux |
 |---|---|---|---|
 | **How** | `Task` tool calls | `TeamCreate` + `SendMessage` | `workmux add` + tmux panes |
-| **Communication** | Results return to parent only | Agents message each other | Human switches between panes |
+| **Communication** | Results return to parent only | Agents message each other | `/coordinator` or human via dashboard |
 | **Isolation** | `isolation: "worktree"` optional | Each agent has own context | Each agent has own git worktree |
 | **Token cost** | 1x per agent (results summarized) | 3-4x (each agent = full session) | 1x per pane (independent sessions) |
 | **Best for** | Focused tasks, result is all that matters | Complex work needing discussion | Maximum control, independent features |
-| **Coordination** | Parent manages everything | Shared task list, self-coordination | Human coordinates via tmux |
+| **Coordination** | Parent manages everything | Shared task list, self-coordination | Human via dashboard, or agent via `/coordinator` |
 | **File conflicts** | Possible without worktree isolation | Possible (same repo) | Impossible (separate worktrees) |
 
 ## Pattern 1: Subagents (Task Tool)
@@ -133,36 +133,36 @@ Task(team_name="r11-r15-spikes", name="stats-agent",
 
 ## Pattern 3: workmux (Parallel Worktrees + tmux)
 
-**When:** Maximum control. Each agent is an independent Claude session in its own worktree and tmux pane. Human orchestrates.
+**When:** Maximum control. Each agent is an independent Claude session in its own worktree and tmux pane. Orchestrate via dashboard, or let a coordinator agent manage the full lifecycle.
 
-**Prerequisites:** `workmux` installed, running inside tmux.
+**Prerequisites:** `workmux` installed (`cargo install workmux`), running inside tmux.
 
-### Setup
+### Agent Integration
+
+workmux auto-detects `claude` in pane commands and injects prompts natively. No special config needed — just provide a prompt:
 
 ```bash
-# Initialize workmux config (once per project)
-workmux init
+# Create worktree + launch Claude with inline prompt
+workmux add feature/auth -p "Implement user authentication with OAuth"
 
-# Create worktrees with agents
-workmux add r11-rating --prompt "Implement adaptive rating spike"
-workmux add r14-stats --prompt "Implement stats aggregation spike"
-workmux add r15-search --prompt "Implement search enrichment spike"
+# From a prompt file (great for detailed specs)
+workmux add feature/refactor -P task-spec.md
 
-# Monitor all agents
-workmux dashboard
+# Auto-generate branch name from prompt (requires `llm` CLI)
+workmux add -A -p "Fix race condition in payment handler"
 
-# Check status
-workmux status
+# Background launch — don't switch to the pane
+workmux add feature/caching -b -p "Add caching layer for API responses"
 
-# Send instructions to a running agent
-workmux send r11-rating "Use percentile-based thresholds, not hardcoded cutoffs"
+# Multi-agent: spawn 2 instances of same task
+workmux add my-feature -n 2 -p "Implement task #{{ num }} in TASKS.md"
 ```
 
 ### .workmux.yaml Configuration
 
 ```yaml
 # Project-level config
-worktree_dir: .worktrees
+agent: claude  # Default agent for <agent> placeholder
 
 post_create:
   - cargo build
@@ -172,7 +172,90 @@ files:
     - .env
   symlink:
     - target  # Share build cache across worktrees
+
+panes:
+  - command: <agent>   # Resolves to `claude`; auto-receives prompt
+    focus: true
+  - split: horizontal  # Shell pane for manual commands
 ```
+
+Custom Claude flags work in pane commands — workmux auto-detects `claude` regardless of flags:
+
+```yaml
+panes:
+  - command: "claude --dangerously-skip-permissions"
+    focus: true
+  - split: horizontal
+```
+
+### Three Orchestration Modes
+
+#### A. Human-orchestrated (dashboard)
+
+You monitor agents and intervene manually:
+
+```bash
+# Spawn agents
+workmux add r11-rating -p "Implement adaptive rating spike"
+workmux add r14-stats -p "Implement stats aggregation spike"
+
+# Monitor all agents in TUI dashboard
+workmux dashboard
+
+# Send instructions to a running agent
+workmux send r11-rating "Use percentile-based thresholds, not hardcoded cutoffs"
+
+# When done, merge one at a time
+workmux merge r11-rating
+workmux merge r14-stats
+```
+
+Dashboard shows: project, agent name, git diff stats, status (working/waiting/done), time since last change, and session title. Press `d` for diff view, `c` to send commit, `m` to send merge.
+
+#### B. Agent-delegated (/worktree skill)
+
+From within a Claude session, delegate tasks to parallel worktrees. Fire and forget.
+
+```
+> /worktree Implement the caching layer we discussed
+> /worktree Fix the race condition in handler.go
+> /worktree Add dark mode, Implement caching  # multiple tasks
+```
+
+The main agent writes a prompt file with full context from the conversation and runs `workmux add` to create the worktree. Useful when:
+- The agent already understands the task from your conversation
+- You want to parallelize work while continuing in the main window
+- You're delegating multiple related tasks from a plan
+
+#### C. Fully automated (/coordinator skill)
+
+The coordinator agent manages the entire lifecycle: spawning, monitoring, communicating, and merging. You stay hands-off.
+
+```
+> /coordinator Break down the auth refactor into parallel tasks:
+  1. Extract session logic into its own module
+  2. Add OAuth provider support
+  3. Write integration tests for the new auth flow
+```
+
+Key commands the coordinator uses:
+
+| Command | Purpose |
+|---|---|
+| `workmux add -b -P <file>` | Spawn agent in background |
+| `workmux status` | Check agent statuses |
+| `workmux wait` | Block until agents reach target status |
+| `workmux capture` | Read terminal output from an agent |
+| `workmux send` | Send instructions or skills to an agent |
+| `workmux run` | Run shell commands in an agent's worktree |
+
+Fan-out / fan-in pattern:
+1. Write prompt files with full context for each task
+2. Spawn all agents in background (`workmux add -b -P prompt.md`)
+3. Confirm started: `workmux wait --status working`
+4. Wait for completion: `workmux wait`
+5. Review results: `workmux capture`
+6. Merge sequentially: send `/merge` to each agent
 
 ### Lifecycle
 
@@ -187,9 +270,15 @@ workmux remove r14-stats    # Remove without merging
 ### Agent Status Tracking
 
 workmux tracks agent status in tmux window names:
-- `wm-r11-rating [working]` — agent is active
-- `wm-r11-rating [idle]` — agent waiting for input
-- `wm-r11-rating [done]` — agent finished
+- Working — agent is active
+- Waiting — agent needs input (auto-clears on focus)
+- Done — agent finished (auto-clears on focus)
+
+Toggle between agents: `workmux last-agent` (like vim's `Ctrl+^`)
+
+### Sandbox
+
+For running agents with `--dangerously-skip-permissions`, workmux supports container/VM sandboxing. Agents get read-write access to their worktree but no access to host secrets (SSH keys, AWS creds, GPG keys). Status tracking, dashboard, and merging all work the same inside the sandbox.
 
 ## Prompt Engineering for Agents
 
@@ -260,11 +349,13 @@ digraph decision {
     "How many tasks?" [shape=diamond];
     "Independent?" [shape=diamond];
     "Need discussion?" [shape=diamond];
+    "Want full automation?" [shape=diamond];
 
     "Explore subagents (parallel)" [shape=box style=filled fillcolor=lightblue];
     "Single subagent" [shape=box style=filled fillcolor=lightgreen];
     "Subagent-driven-dev (sequential)" [shape=box style=filled fillcolor=lightgreen];
-    "workmux (parallel worktrees)" [shape=box style=filled fillcolor=lightyellow];
+    "workmux + /coordinator (automated)" [shape=box style=filled fillcolor=lightyellow];
+    "workmux + dashboard (human-controlled)" [shape=box style=filled fillcolor=lightyellow];
     "Agent Teams (TeamCreate)" [shape=box style=filled fillcolor=lightyellow];
 
     "What kind of work?" -> "Research / exploration" [label="research"];
@@ -275,10 +366,21 @@ digraph decision {
     "How many tasks?" -> "Independent?" [label="2+"];
     "Independent?" -> "Subagent-driven-dev (sequential)" [label="no - dependent"];
     "Independent?" -> "Need discussion?" [label="yes"];
-    "Need discussion?" -> "Agent Teams (TeamCreate)" [label="yes"];
-    "Need discussion?" -> "workmux (parallel worktrees)" [label="no"];
+    "Need discussion?" -> "Agent Teams (TeamCreate)" [label="yes - agents must coordinate"];
+    "Need discussion?" -> "Want full automation?" [label="no"];
+    "Want full automation?" -> "workmux + /coordinator (automated)" [label="yes"];
+    "Want full automation?" -> "workmux + dashboard (human-controlled)" [label="no"];
 }
 ```
+
+### /worktree vs /coordinator
+
+| | /worktree | /coordinator |
+|---|---|---|
+| **Style** | Fire and forget | Full lifecycle management |
+| **Merging** | You merge manually | Coordinator merges sequentially |
+| **Follow-up** | You send follow-ups via dashboard | Coordinator sends follow-ups automatically |
+| **Best for** | Delegating tasks you'll review later | Multi-step plans with ordered merging |
 
 ## Integration
 
@@ -302,3 +404,5 @@ digraph decision {
 **Too many teammates.** 3 focused agents > 5 scattered agents. Start small, add if needed.
 
 **Forgetting to merge workmux branches.** Each workmux pane creates a git branch. Use `workmux merge` or `workmux remove` to clean up.
+
+**Using /coordinator for simple delegation.** If you just want to spin off a task and review later, `/worktree` is simpler. Use `/coordinator` only when you need automated lifecycle management (wait, review, follow-up, merge).
