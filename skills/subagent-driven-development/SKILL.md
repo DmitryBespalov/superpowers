@@ -218,7 +218,8 @@ Done!
 - Don't rush them into implementation
 
 **If reviewer finds issues:**
-- Implementer (same subagent) fixes them
+- **Every single finding must be fixed** — no "skip for scope" or "address later" shortcuts
+- Implementer (same subagent) fixes them — completely, correctly, and in full
 - Reviewer reviews again
 - Repeat until approved
 - Don't skip the re-review

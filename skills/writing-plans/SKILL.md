@@ -96,21 +96,28 @@ git commit -m "feat: add specific feature"
 
 ## Execution Handoff
 
-After saving the plan, offer execution choice:
+After saving the plan, **auto-decide** the execution strategy. Do NOT ask the user which approach to use.
 
-**"Plan complete and saved to `docs/plans/<filename>.md`. Two execution options:**
+**Decision logic — analyze task dependencies in the plan:**
 
-**1. Subagent-Driven (this session)** - I dispatch fresh subagent per task, review between tasks, fast iteration
+1. **If tasks are mostly independent** (can be worked on without shared state or sequential dependencies) → use **superpowers:dispatching-parallel-agents** (team of agents working in parallel)
+2. **If tasks are sequential/dependent** (each task builds on the output of the previous one) → use **superpowers:subagent-driven-development** (fresh subagent per task, sequential execution with two-stage review)
 
-**2. Parallel Session (separate)** - Open new session with executing-plans, batch execution with checkpoints
+**Announce the decision briefly:**
 
-**Which approach?"**
+> "Plan saved. Tasks are [sequential/parallelizable] — proceeding with [subagent-driven development / parallel agents]."
 
-**If Subagent-Driven chosen:**
+Then immediately invoke the chosen skill. No pause, no question.
+
+**If Subagent-Driven (sequential tasks):**
 - **REQUIRED SUB-SKILL:** Use superpowers:subagent-driven-development
 - Stay in this session
 - Fresh subagent per task + code review
 
-**If Parallel Session chosen:**
+**If Parallel Agents (independent tasks):**
+- **REQUIRED SUB-SKILL:** Use superpowers:dispatching-parallel-agents
+- Launch agents concurrently for independent tasks
+
+**If Parallel Session explicitly requested by user:**
 - Guide them to open new session in worktree
 - **REQUIRED SUB-SKILL:** New session uses superpowers:executing-plans

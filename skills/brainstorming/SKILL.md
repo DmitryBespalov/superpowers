@@ -9,19 +9,39 @@ description: "You MUST use this before any creative work - creating features, bu
 
 Help turn ideas into fully formed designs and specs through natural collaborative dialogue.
 
-Start by understanding the current project context, then ask questions one at a time to refine the idea. Once you understand what you're building, present the design and get user approval.
+Start by understanding the current project context, then determine if this is a **fast-track** or **interactive** brainstorm. Present the design and get user approval before any implementation.
 
 <HARD-GATE>
 Do NOT invoke any implementation skill, write any code, scaffold any project, or take any implementation action until you have presented a design and the user has approved it. This applies to EVERY project regardless of perceived simplicity.
 </HARD-GATE>
 
-## Anti-Pattern: "This Is Too Simple To Need A Design"
+## Fast-Track vs Interactive Mode
 
-Every project goes through this process. A todo list, a single-function utility, a config change — all of them. "Simple" projects are where unexamined assumptions cause the most wasted work. The design can be short (a few sentences for truly simple projects), but you MUST present it and get approval.
+**Before asking any questions, determine the mode:**
 
-## Checklist
+Check the project for established patterns — prior spikes, similar features already built, repeated architectural patterns, or clear precedent in the codebase.
 
-You MUST create a task for each of these items and complete them in order:
+**Fast-track mode** activates when:
+- The project has prior work following the same pattern (e.g., spike/check crates, API endpoints, UI components that follow an established convention)
+- The user's request clearly maps to an existing pattern with minor variations
+- The design decisions are straightforward given the established architecture
+
+**Interactive mode** is the fallback when:
+- This is genuinely novel work with no clear precedent
+- Multiple valid architectures exist and trade-offs are non-obvious
+- The user's intent is ambiguous
+
+### Fast-Track Process
+
+1. **Explore project context** silently (use subagents, don't narrate)
+2. **Batch all questions** into a single message — present what you've learned, state your assumptions, list any remaining questions together
+3. **Present the full design** in one pass (not section-by-section) with your recommended approach and alternatives noted briefly
+4. **Wait for single approval** — user says yes, or points out what to change
+5. **Write design doc** and transition to writing-plans
+
+### Interactive Process
+
+Use this only when fast-track doesn't apply:
 
 1. **Explore project context** — check files, docs, recent commits
 2. **Ask clarifying questions** — one at a time, understand purpose/constraints/success criteria
@@ -35,16 +55,21 @@ You MUST create a task for each of these items and complete them in order:
 ```dot
 digraph brainstorming {
     "Explore project context" [shape=box];
-    "Ask clarifying questions" [shape=box];
+    "Established pattern exists?" [shape=diamond];
+    "Fast-track: batch questions + full design" [shape=box];
+    "Interactive: questions one at a time" [shape=box];
     "Propose 2-3 approaches" [shape=box];
     "Present design sections" [shape=box];
     "User approves design?" [shape=diamond];
     "Write design doc" [shape=box];
     "Invoke writing-plans skill" [shape=doublecircle];
 
-    "Explore project context" -> "Ask clarifying questions";
-    "Ask clarifying questions" -> "Propose 2-3 approaches";
+    "Explore project context" -> "Established pattern exists?";
+    "Established pattern exists?" -> "Fast-track: batch questions + full design" [label="yes"];
+    "Established pattern exists?" -> "Interactive: questions one at a time" [label="no"];
+    "Interactive: questions one at a time" -> "Propose 2-3 approaches";
     "Propose 2-3 approaches" -> "Present design sections";
+    "Fast-track: batch questions + full design" -> "User approves design?";
     "Present design sections" -> "User approves design?";
     "User approves design?" -> "Present design sections" [label="no, revise"];
     "User approves design?" -> "Write design doc" [label="yes"];
@@ -54,7 +79,7 @@ digraph brainstorming {
 
 **The terminal state is invoking writing-plans.** Do NOT invoke frontend-design, mcp-builder, or any other implementation skill. The ONLY skill you invoke after brainstorming is writing-plans.
 
-## The Process
+## The Process (Interactive Mode Details)
 
 **Understanding the idea:**
 - Check out the current project state first (files, docs, recent commits)
@@ -75,6 +100,10 @@ digraph brainstorming {
 - Cover: architecture, components, data flow, error handling, testing
 - Be ready to go back and clarify if something doesn't make sense
 
+## Risk/Spike Coverage
+
+When addressing a risk via spike or prototype, always cover all aspects of the risk in depth. Don't narrow scope to "just the core" — cover every scenario the risk describes. Comprehensive coverage prevents revisiting the same risk later.
+
 ## After the Design
 
 **Documentation:**
@@ -88,9 +117,7 @@ digraph brainstorming {
 
 ## Key Principles
 
-- **One question at a time** - Don't overwhelm with multiple questions
-- **Multiple choice preferred** - Easier to answer than open-ended when possible
+- **Fast-track when patterns exist** - Don't ask 10 questions when the answer is obvious from prior work
 - **YAGNI ruthlessly** - Remove unnecessary features from all designs
-- **Explore alternatives** - Always propose 2-3 approaches before settling
-- **Incremental validation** - Present design, get approval before moving on
+- **Explore alternatives** - Always note 2-3 approaches, even in fast-track (just be brief)
 - **Be flexible** - Go back and clarify when something doesn't make sense
